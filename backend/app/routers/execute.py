@@ -30,6 +30,19 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出检测执行清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "execute", "total": total, "items": items}
+
+
+@router.get("/stats")
+def execute_stats() -> dict[str, int]:
+    """执行统计：待执行、执行中与今日提交数；已作废记录不计入任何数字。"""
+    return service.stats()
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条执行记录明细；不存在时给出可读的错误说明。"""
@@ -41,10 +54,12 @@ def get_entry(entry_id: int) -> dict:
 
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
-    """登记一条执行记录，缺字段时说明原因而不是静默丢弃。"""
-    entry, missing = service.create_entry(payload.values)
+    """登记一条执行记录，缺字段时说明原因而不是静默丢弃；重复提交返回已有记录。"""
+    entry, missing, created = service.create_entry(payload.values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
+    if not created:
+        return ActionResult(ok=True, message="相同记录编号或原始记录号的记录已存在，未重复登记", entry=entry)
     return ActionResult(ok=True, message="执行记录已登记", entry=entry)
 
 
@@ -56,10 +71,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出检测执行清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "execute", "total": total, "items": items}

@@ -73,13 +73,17 @@ const ENDPOINT = '/api/execute'
 const columns = ["记录编号", "关联任务", "前处理方式", "检测条件", "原始记录号", "执行人员", "执行时间", "执行状态"]
 const actions = ["开始执行", "提交记录", "作废记录"]
 const statuses = ["待执行", "执行中", "已提交", "已作废"]
-const stats = [{"label": "待执行记录", "value": 0}, {"label": "执行中记录", "value": 0}, {"label": "今日提交数", "value": 0}]
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const stats = ref([
+  { label: '待执行记录', value: 0 },
+  { label: '执行中记录', value: 0 },
+  { label: '今日提交数', value: 0 },
+])
 
 function resetFilters() {
   filters.value = {}
@@ -101,12 +105,26 @@ async function runAction(action: string, row: Row) {
       method: 'POST',
       body: JSON.stringify({ action }),
     })
-    if (!response.ok) {
-      throw new Error('检测执行动作未生效，请稍后重试')
+    const payload = await response.json()
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.message ?? payload.detail ?? '检测执行动作未生效，请稍后重试')
     }
-    await reload()
+    await Promise.all([reload(), reloadStats()])
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '检测执行操作失败'
+  }
+}
+
+async function reloadStats() {
+  try {
+    const response = await request(`${ENDPOINT}/stats`)
+    if (!response.ok) {
+      throw new Error('执行统计读取失败')
+    }
+    const payload = await response.json()
+    stats.value = stats.value.map((item) => ({ ...item, value: Number(payload[item.label] ?? 0) }))
+  } catch {
+    // 统计读取失败不阻塞列表展示
   }
 }
 
@@ -126,5 +144,8 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  void reload()
+  void reloadStats()
+})
 </script>
