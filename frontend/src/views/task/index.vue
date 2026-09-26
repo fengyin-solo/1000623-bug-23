@@ -36,7 +36,7 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td v-for="column in columns" :key="column">{{ cellText(row, column) }}</td>
           <td class="row-actions">
             <button
               v-for="action in actions"
@@ -67,19 +67,31 @@ import { onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
 
-type Row = Record<string, string | number | null>
+type ExecuteSummary = { 检测条件?: string | null; 前处理方式?: string | null; 执行状态?: string | null }
+type Row = Record<string, string | number | null | ExecuteSummary | undefined>
 
 const ENDPOINT = '/api/task'
-const columns = ["任务编号", "关联样品", "检测项目", "承检人员", "计划完成日", "实际完成日", "任务优先级", "任务状态"]
+const columns = ["任务编号", "关联样品", "检测项目", "承检人员", "计划完成日", "实际完成日", "任务优先级", "任务状态", "检测条件", "前处理方式", "执行状态"]
 const actions = ["派发任务", "提交复核", "确认完成"]
 const statuses = ["待派发", "检测中", "待复核", "已完成"]
 const stats = [{"label": "待派发任务", "value": 0}, {"label": "检测中任务", "value": 0}, {"label": "超期任务", "value": 0}]
+// 检测条件/前处理方式/执行状态取自后端投影的最新一条有效执行记录，与执行列表同源
+const EXECUTE_KEYS = new Set(["检测条件", "前处理方式", "执行状态"])
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+
+function cellText(row: Row, column: string): string | number {
+  if (EXECUTE_KEYS.has(column)) {
+    const summary = row['检测执行'] as ExecuteSummary | undefined
+    return summary?.[column as keyof ExecuteSummary] ?? '—'
+  }
+  const value = row[column]
+  return typeof value === 'object' || value === undefined || value === null ? '—' : value
+}
 
 function resetFilters() {
   filters.value = {}

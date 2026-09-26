@@ -39,7 +39,7 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
-              v-for="action in actions"
+              v-for="action in availableActions(row)"
               :key="action"
               class="link"
               type="button"
@@ -47,6 +47,7 @@
             >
               {{ action }}
             </button>
+            <span v-if="!availableActions(row).length" class="empty-state">已作废，不可再操作</span>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -65,21 +66,38 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { request } from '@/api/client'
+import { fetchJson, request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
+type ExecuteStats = {
+  待执行: number
+  执行中: number
+  今日提交: number
+  按执行人员: { 执行人员: string; 完成数: number }[]
+  已作废: number
+}
 
 const ENDPOINT = '/api/execute'
 const columns = ["记录编号", "关联任务", "前处理方式", "检测条件", "原始记录号", "执行人员", "执行时间", "执行状态"]
-const actions = ["开始执行", "提交记录", "作废记录"]
 const statuses = ["待执行", "执行中", "已提交", "已作废"]
-const stats = [{"label": "待执行记录", "value": 0}, {"label": "执行中记录", "value": 0}, {"label": "今日提交数", "value": 0}]
+// 与后端状态机一致：已作废是终态，不再提供任何动作
+const actionsByStatus: Record<string, string[]> = {
+  待执行: ["开始执行", "作废记录"],
+  执行中: ["提交记录", "作废记录"],
+  已提交: ["作废记录"],
+  已作废: [],
+}
+const stats = ref([{"label": "待执行记录", "value": 0}, {"label": "执行中记录", "value": 0}, {"label": "今日提交数", "value": 0}])
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+
+function availableActions(row: Row): string[] {
+  return actionsByStatus[String(row.status ?? '')] ?? []
+}
 
 function resetFilters() {
   filters.value = {}
@@ -101,12 +119,26 @@ async function runAction(action: string, row: Row) {
       method: 'POST',
       body: JSON.stringify({ action }),
     })
-    if (!response.ok) {
-      throw new Error('检测执行动作未生效，请稍后重试')
+    const result = await response.json().catch(() => null)
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.message ?? result?.detail ?? '检测执行动作未生效，请稍后重试')
     }
     await reload()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '检测执行操作失败'
+  }
+}
+
+async function reloadStats() {
+  try {
+    const payload = await fetchJson<ExecuteStats>(`${ENDPOINT}/stats`)
+    stats.value = [
+      { label: '待执行记录', value: payload.待执行 ?? 0 },
+      { label: '执行中记录', value: payload.执行中 ?? 0 },
+      { label: '今日提交数', value: payload.今日提交 ?? 0 },
+    ]
+  } catch {
+    // 统计读取失败时保留上一次的结果，列表仍然可用
   }
 }
 
@@ -124,6 +156,7 @@ async function reload() {
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '检测执行列表读取失败'
   }
+  await reloadStats()
 }
 
 onMounted(reload)

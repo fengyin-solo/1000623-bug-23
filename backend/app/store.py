@@ -8,6 +8,9 @@ from typing import Any
 
 from app.seed import SEED_ROWS
 
+# 作废状态不参与任何统计口径（今日新增、待处理、异常量都不计入）。
+VOID_STATUSES = {"已作废"}
+
 
 class Store:
     def __init__(self) -> None:
@@ -30,7 +33,7 @@ class Store:
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []
         for name in self.module_names():
-            rows = self.rows(name)
+            rows = [row for row in self.rows(name) if row.get("status") not in VOID_STATUSES]
             modules.append({
                 "name": name,
                 "created": len(rows),
